@@ -1,12 +1,9 @@
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto'); 
-const { Resend } = require('resend'); // 👈 নতুন যোগ করা হলো
+const SibApiV3Sdk = require('sib-api-v3-sdk'); // 👈 Brevo API ইমপোর্ট করা হলো
 const { User } = require('../models');
 const supabase = require('../config/supabaseConfig');
 const { isDisposableEmail } = require('../utils/emailValidator');
-
-// 👈 Resend ইনিশিয়ালাইজ করুন
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 // টোকেন জেনারেট করার হেল্পার ফাংশন (Access Token ১৫ মিনিটের জন্য)
 const generateToken = (user) => {
@@ -250,7 +247,7 @@ const logoutUser = async (req, res, next) => {
 };
 
 // ==========================================
-// 4. Forget Password (OTP Flow) - 🚀 আপডেট করা হয়েছে
+// 4. Forget Password (OTP Flow with Brevo)
 // ==========================================
 
 const forgotPassword = async (req, res, next) => {
@@ -275,28 +272,35 @@ const forgotPassword = async (req, res, next) => {
     user.resetPasswordAttempts = 0; 
     await user.save({ validateBeforeSave: false });
 
-    // 👈 Resend API দিয়ে ইমেইল পাঠানোর লজিক
-    const htmlMessage = `
+    // 👇 Brevo API সেটআপ
+    const defaultClient = SibApiV3Sdk.ApiClient.instance;
+    const apiKey = defaultClient.authentications['api-key'];
+    apiKey.apiKey = process.env.BREVO_API_KEY;
+
+    const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
+    const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
+
+    sendSmtpEmail.subject = "Password Reset OTP";
+    sendSmtpEmail.htmlContent = `
       <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
         <h2>Password Reset Request</h2>
-        <p>Your password reset OTP is:</p>
+        <p>Your OTP for resetting your password is:</p>
         <h1 style="color: #007bff; letter-spacing: 5px;">${otp}</h1>
         <p>This OTP is valid for <strong>10 minutes</strong>.</p>
         <p>If you didn't request this, please ignore this email.</p>
       </div>
     `;
+    
+    // 🚨 এখানে আপনার Brevo-তে ভেরিফাই করা ইমেইলটি দিতে হবে
+    sendSmtpEmail.sender = { "name": "Guti Chat", "email": "mike.2000.tysn@gmail.com" }; 
+    sendSmtpEmail.to = [{ "email": user.email }];
 
     try {
-      await resend.emails.send({
-        from: 'onboarding@resend.dev', // Resend এর ডিফল্ট টেস্ট ইমেইল
-        to: user.email,
-        subject: 'Password Reset OTP',
-        html: htmlMessage,
-      });
-      
+      await apiInstance.sendTransacEmail(sendSmtpEmail);
+      console.log(`✅ OTP Email successfully sent to ${user.email} via Brevo`);
       res.status(200).json({ status: 'success', message: 'OTP sent to email successfully' });
     } catch (err) {
-      console.error('❌ Resend Email Error:', err);
+      console.error('❌ Brevo Email Error:', err.response ? err.response.body : err);
       
       // ইমেইল ফেইল করলে ডেটাবেস থেকে OTP মুছে ফেলুন
       user.resetPasswordOTP = undefined;
@@ -476,9 +480,6 @@ const updatePassword = async (req, res, next) => {
   }
 };
 
-
-
-
 module.exports = {
   registerUser,
   loginUser,
@@ -490,5 +491,4 @@ module.exports = {
   getMe,
   refreshAccessToken,
   updatePassword 
-  // edfd
 };
