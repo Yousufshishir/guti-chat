@@ -5,6 +5,17 @@ const { User } = require('../models');
 const supabase = require('../config/supabaseConfig');
 const { isDisposableEmail } = require('../utils/emailValidator');
 
+// 👈 ফিক্স ২: রেসপন্স পাঠানোর আগে ইউজার অবজেক্ট স্যানিটাইজ করার হেল্পার ফাংশন
+const sanitizeUser = (user) => {
+  const userObj = user.toObject ? user.toObject() : { ...user };
+  delete userObj.password;
+  delete userObj.refreshToken;
+  delete userObj.encryptedPrivateKey;
+  delete userObj.keyBackupSalt;
+  delete userObj.__v;
+  return userObj;
+};
+
 // টোকেন জেনারেট করার হেল্পার ফাংশন (Access Token ১৫ মিনিটের জন্য)
 const generateToken = (user) => {
   return jwt.sign({ id: user._id, tokenVersion: user.tokenVersion }, process.env.JWT_SECRET, {
@@ -66,7 +77,7 @@ const registerUser = async (req, res, next) => {
     res.status(201).json({
       status: 'success',
       data: {
-        user,
+        user: sanitizeUser(user), // 👈 ফিক্স: স্যানিটাইজ করা হলো
         token: accessToken,
         refreshToken: refreshToken, 
       },
@@ -93,20 +104,18 @@ const loginUser = async (req, res, next) => {
         { email: loginId.toLowerCase() },
         { username: loginId.toLowerCase() },
       ],
-    }).select('+password');
+    }).select('+password +refreshToken'); // 👈 ফিক্স: টোকেন সেভ করার জন্য রিড করা হলো
 
     if (!user) {
       return res.status(401).json({ status: 'error', message: 'Invalid credentials' });
     }
 
-    // 🚨 ফিক্স ১: লকের সময় শেষ হলে অটোমেটিক্যালি অ্যাটেম্পট রিসেট হবে
     if (user.lockUntil && user.lockUntil > Date.now()) {
       return res.status(401).json({ 
         status: 'error', 
         message: 'Account temporarily locked due to too many failed attempts. Please try again after 15 minutes.' 
       });
     } else if (user.lockUntil && user.lockUntil <= Date.now()) {
-      // লকের সময় পার হয়ে গেলে কাউন্টার রিসেট করে দিবে
       user.loginAttempts = 0;
       user.lockUntil = null;
       await user.save();
@@ -124,7 +133,6 @@ const loginUser = async (req, res, next) => {
       return res.status(401).json({ status: 'error', message: 'Invalid credentials' });
     }
 
-    // সফলভাবে লগইন হলে অ্যাটেম্পট রিসেট
     if (user.loginAttempts > 0 || user.lockUntil) {
       user.loginAttempts = 0;
       user.lockUntil = null;
@@ -137,12 +145,10 @@ const loginUser = async (req, res, next) => {
     user.refreshToken = refreshToken;
     await user.save();
 
-    user.password = undefined; 
-
     res.status(200).json({
       status: 'success',
       data: {
-        user,
+        user: sanitizeUser(user), // 👈 ফিক্স: স্যানিটাইজ করা হলো
         token: accessToken,
         refreshToken: refreshToken, 
       },
@@ -193,7 +199,7 @@ const supabaseEmailLogin = async (req, res, next) => {
       return res.status(200).json({
         status: 'success',
         message: 'Logged in successfully',
-        data: { user, token: newAccessToken, refreshToken: refreshToken },
+        data: { user: sanitizeUser(user), token: newAccessToken, refreshToken: refreshToken }, // 👈 ফিক্স
       });
     }
 
@@ -228,7 +234,7 @@ const supabaseEmailLogin = async (req, res, next) => {
     res.status(201).json({
       status: 'success',
       message: 'User registered successfully via Email',
-      data: { user, token: newAccessToken, refreshToken: refreshToken },
+      data: { user: sanitizeUser(user), token: newAccessToken, refreshToken: refreshToken }, // 👈 ফিক্স
     });
   } catch (error) {
     next(error);
@@ -279,7 +285,6 @@ const forgotPassword = async (req, res, next) => {
     user.resetPasswordAttempts = 0; 
     await user.save({ validateBeforeSave: false });
 
-    // 👇 Brevo API সেটআপ
     const defaultClient = SibApiV3Sdk.ApiClient.instance;
     const apiKey = defaultClient.authentications['api-key'];
     apiKey.apiKey = process.env.BREVO_API_KEY;
@@ -298,7 +303,6 @@ const forgotPassword = async (req, res, next) => {
       </div>
     `;
     
-    // 🚨 এখানে আপনার Brevo-তে ভেরিফাই করা ইমেইলটি দিতে হবে
     sendSmtpEmail.sender = { "name": "Guti Chat", "email": "mike.2000.tysn@gmail.com" }; 
     sendSmtpEmail.to = [{ "email": user.email }];
 
@@ -382,7 +386,6 @@ const resetPassword = async (req, res, next) => {
     user.resetPasswordExpire = undefined;
     user.resetPasswordAttempts = 0; 
     
-    // 🚨 ফিক্স ২: পাসওয়ার্ড রিসেট হলে লক খুলে যাবে
     user.loginAttempts = 0;
     user.lockUntil = null;
 
@@ -403,7 +406,8 @@ const resetPassword = async (req, res, next) => {
 
 const getMe = async (req, res, next) => {
   try {
-    res.status(200).json({ status: 'success', data: req.user });
+    // 👈 ফিক্স: রেসপন্স পাঠানোর আগে স্যানিটাইজ করা হলো
+    res.status(200).json({ status: 'success', data: sanitizeUser(req.user) });
   } catch (error) {
     next(error);
   }
@@ -419,7 +423,8 @@ const refreshAccessToken = async (req, res, next) => {
 
     const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
     
-    const user = await User.findById(decoded.id);
+    // 👈 ফিক্স ৩: select: false এর কারণে টোকেনটি এক্সপ্লিসিটলি রিড করতে হবে
+    const user = await User.findById(decoded.id).select('+refreshToken');
     
     if (!user || user.refreshToken !== refreshToken || user.tokenVersion !== decoded.tokenVersion) {
       return res.status(403).json({ status: 'error', message: 'Invalid or expired refresh token' });

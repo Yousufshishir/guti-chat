@@ -106,7 +106,6 @@ const userSchema = new mongoose.Schema(
       },
     ],
 
-    // 👈 নতুন যোগ করা হলো: Chat Mute (নোটিফিকেশন বন্ধ করার জন্য)
     mutedUsers: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -134,9 +133,11 @@ const userSchema = new mongoose.Schema(
       default: 0 
     },
 
+    // 👈 ফিক্স ১: এখানে select: false যোগ করা হলো
     refreshToken: { 
       type: String, 
-      default: null 
+      default: null,
+      select: false 
     },
 
     backupSettings: {
@@ -155,7 +156,6 @@ const userSchema = new mongoose.Schema(
 userSchema.index({ friends: 1 });
 userSchema.index({ friendRequests: 1 });
 userSchema.index({ blockedUsers: 1 });
-// 👈 নতুন যোগ করা হলো: Mute list এর জন্য ইনডেক্স
 userSchema.index({ mutedUsers: 1 });
 userSchema.index({ mutedGroups: 1 });
 
