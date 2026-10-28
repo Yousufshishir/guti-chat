@@ -68,3 +68,22 @@ temp/
 *.dump
 *.bson
 "@ | Out-File -FilePath .gitignore -Encoding utf8
+# Node modules
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+
+# Capacitor (Mobile App Builds)
+android/
+ios/
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Logs & System files
+*.log
+.DS_Store
