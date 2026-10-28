@@ -477,6 +477,8 @@ const updatePassword = async (req, res, next) => {
 };
 
 
+
+
 module.exports = {
   registerUser,
   loginUser,
