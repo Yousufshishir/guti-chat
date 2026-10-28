@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto'); 
-const SibApiV3Sdk = require('sib-api-v3-sdk'); // 👈 Brevo API ইমপোর্ট করা হলো
+const SibApiV3Sdk = require('sib-api-v3-sdk'); 
 const { User } = require('../models');
 const supabase = require('../config/supabaseConfig');
 const { isDisposableEmail } = require('../utils/emailValidator');
@@ -99,11 +99,17 @@ const loginUser = async (req, res, next) => {
       return res.status(401).json({ status: 'error', message: 'Invalid credentials' });
     }
 
+    // 🚨 ফিক্স ১: লকের সময় শেষ হলে অটোমেটিক্যালি অ্যাটেম্পট রিসেট হবে
     if (user.lockUntil && user.lockUntil > Date.now()) {
       return res.status(401).json({ 
         status: 'error', 
         message: 'Account temporarily locked due to too many failed attempts. Please try again after 15 minutes.' 
       });
+    } else if (user.lockUntil && user.lockUntil <= Date.now()) {
+      // লকের সময় পার হয়ে গেলে কাউন্টার রিসেট করে দিবে
+      user.loginAttempts = 0;
+      user.lockUntil = null;
+      await user.save();
     }
 
     const isMatch = await user.comparePassword(password);
@@ -118,6 +124,7 @@ const loginUser = async (req, res, next) => {
       return res.status(401).json({ status: 'error', message: 'Invalid credentials' });
     }
 
+    // সফলভাবে লগইন হলে অ্যাটেম্পট রিসেট
     if (user.loginAttempts > 0 || user.lockUntil) {
       user.loginAttempts = 0;
       user.lockUntil = null;
@@ -302,7 +309,6 @@ const forgotPassword = async (req, res, next) => {
     } catch (err) {
       console.error('❌ Brevo Email Error:', err.response ? err.response.body : err);
       
-      // ইমেইল ফেইল করলে ডেটাবেস থেকে OTP মুছে ফেলুন
       user.resetPasswordOTP = undefined;
       user.resetPasswordExpire = undefined;
       user.resetPasswordAttempts = 0; 
@@ -375,6 +381,11 @@ const resetPassword = async (req, res, next) => {
     user.resetPasswordOTP = undefined;
     user.resetPasswordExpire = undefined;
     user.resetPasswordAttempts = 0; 
+    
+    // 🚨 ফিক্স ২: পাসওয়ার্ড রিসেট হলে লক খুলে যাবে
+    user.loginAttempts = 0;
+    user.lockUntil = null;
+
     user.tokenVersion += 1; 
     user.refreshToken = null;
     
