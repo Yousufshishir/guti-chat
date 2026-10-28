@@ -1,18 +1,21 @@
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto'); 
+const { Resend } = require('resend'); // 👈 নতুন যোগ করা হলো
 const { User } = require('../models');
 const supabase = require('../config/supabaseConfig');
 const { isDisposableEmail } = require('../utils/emailValidator');
-const sendEmail = require('../utils/sendEmail');
 
-// টোকেন জেনারেট করার হেল্পার ফাংশন (এখন এটি Access Token ১৫ মিনিটের জন্য কাজ করবে)
+// 👈 Resend ইনিশিয়ালাইজ করুন
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+// টোকেন জেনারেট করার হেল্পার ফাংশন (Access Token ১৫ মিনিটের জন্য)
 const generateToken = (user) => {
   return jwt.sign({ id: user._id, tokenVersion: user.tokenVersion }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m', 
   });
 };
 
-// 👈 নতুন যোগ করা হলো: Refresh Token (৭ দিন) জেনারেট করার হেল্পার ফাংশন
+// Refresh Token (৭ দিন) জেনারেট করার হেল্পার ফাংশন
 const generateRefreshToken = (user) => {
   return jwt.sign({ id: user._id, tokenVersion: user.tokenVersion }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
@@ -247,7 +250,7 @@ const logoutUser = async (req, res, next) => {
 };
 
 // ==========================================
-// 4. Forget Password (OTP Flow)
+// 4. Forget Password (OTP Flow) - 🚀 আপডেট করা হয়েছে
 // ==========================================
 
 const forgotPassword = async (req, res, next) => {
@@ -265,7 +268,6 @@ const forgotPassword = async (req, res, next) => {
     }
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    
     const hashedOTP = crypto.createHash('sha256').update(otp).digest('hex');
 
     user.resetPasswordOTP = hashedOTP; 
@@ -273,21 +275,36 @@ const forgotPassword = async (req, res, next) => {
     user.resetPasswordAttempts = 0; 
     await user.save({ validateBeforeSave: false });
 
-    const message = `Your password reset OTP is: ${otp}\n\nThis OTP is valid for 10 minutes.`;
+    // 👈 Resend API দিয়ে ইমেইল পাঠানোর লজিক
+    const htmlMessage = `
+      <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+        <h2>Password Reset Request</h2>
+        <p>Your password reset OTP is:</p>
+        <h1 style="color: #007bff; letter-spacing: 5px;">${otp}</h1>
+        <p>This OTP is valid for <strong>10 minutes</strong>.</p>
+        <p>If you didn't request this, please ignore this email.</p>
+      </div>
+    `;
 
     try {
-      await sendEmail({
-        email: user.email,
+      await resend.emails.send({
+        from: 'onboarding@resend.dev', // Resend এর ডিফল্ট টেস্ট ইমেইল
+        to: user.email,
         subject: 'Password Reset OTP',
-        message,
+        html: htmlMessage,
       });
+      
       res.status(200).json({ status: 'success', message: 'OTP sent to email successfully' });
     } catch (err) {
+      console.error('❌ Resend Email Error:', err);
+      
+      // ইমেইল ফেইল করলে ডেটাবেস থেকে OTP মুছে ফেলুন
       user.resetPasswordOTP = undefined;
       user.resetPasswordExpire = undefined;
       user.resetPasswordAttempts = 0; 
       await user.save({ validateBeforeSave: false });
-      return res.status(500).json({ status: 'error', message: 'Email could not be sent' });
+      
+      return res.status(500).json({ status: 'error', message: 'Email could not be sent. Please try again later.' });
     }
   } catch (error) {
     next(error);
@@ -408,17 +425,13 @@ const refreshAccessToken = async (req, res, next) => {
 };
 
 // ==========================================
-// 👈 নতুন যোগ করা হলো: Update Password (Change Password)
+// 6. Update Password (Change Password)
 // ==========================================
 
-// @desc    Update password while logged in
-// @route   PUT /api/auth/update-password
-// @access  Private
 const updatePassword = async (req, res, next) => {
   try {
     const { oldPassword, newPassword } = req.body;
 
-    // ১. বেসিক ভ্যালিডেশন
     if (!oldPassword || !newPassword) {
       return res.status(400).json({ status: 'error', message: 'Old password and new password are required' });
     }
@@ -427,13 +440,11 @@ const updatePassword = async (req, res, next) => {
       return res.status(400).json({ status: 'error', message: 'New password must be at least 6 characters' });
     }
 
-    // ২. ইউজার খোঁজা (পাসওয়ার্ড সহ)
     const user = await User.findById(req.user._id).select('+password');
     if (!user) {
       return res.status(404).json({ status: 'error', message: 'User not found' });
     }
 
-    // ৩. Google/Supabase ইউজার হলে পাসওয়ার্ড চেঞ্জ করার দরকার নেই
     if (user.authProvider !== 'local') {
       return res.status(400).json({ 
         status: 'error', 
@@ -441,21 +452,16 @@ const updatePassword = async (req, res, next) => {
       });
     }
 
-    // ৪. পুরনো পাসওয়ার্ড ভেরিফাই করা
     const isMatch = await user.comparePassword(oldPassword);
     if (!isMatch) {
       return res.status(401).json({ status: 'error', message: 'Current password is incorrect' });
     }
 
-    // ৫. নতুন ও পুরনো পাসওয়ার্ড একই হলে ব্লক করা
     if (oldPassword === newPassword) {
       return res.status(400).json({ status: 'error', message: 'New password cannot be the same as the old password' });
     }
 
-    // ৬. নতুন পাসওয়ার্ড সেট (pre-save hook অটোমেটিক হ্যাশ করবে)
     user.password = newPassword;
-    
-    // ৭. সিকিউরিটি: টোকেন ইনভ্যালিডেট ও রিফ্রেশ টোকেন ডিলিট
     user.tokenVersion += 1;
     user.refreshToken = null;
     
@@ -480,5 +486,5 @@ module.exports = {
   resetPassword,
   getMe,
   refreshAccessToken,
-  updatePassword // 👈 নতুন ফাংশন এক্সপোর্ট করা হলো
+  updatePassword 
 };

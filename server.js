@@ -31,9 +31,10 @@ const startMediaCleanupJob = require('./cron/cleanupMedia');
 const startAccountCleanupJob = require('./cron/cleanupAccounts'); 
 
 const app = express();
-app.set('trust proxy', 1);
-const server = http.createServer(app); 
 
+
+const server = http.createServer(app); 
+app.set('trust proxy', 1);
 const io = new Server(server, {
   cors: {
     origin: '*', // প্রোডাকশনে গেলে এখানে আপনার ফ্রন্টএন্ড ডোমেইন দিবেন
