@@ -104,8 +104,13 @@ const editPost = async (req, res, next) => {
     post.mediaType = req.body.mediaType || post.mediaType;
     post.visibility = req.body.visibility || post.visibility;
 
-    const updatedPost = await post.save();
-    res.status(200).json({ status: 'success', data: updatedPost });
+    await post.save();
+
+    // 👈 নতুন যোগ করা হলো: রেসপন্স পাঠানোর আগে populate করা হচ্ছে
+    await post.populate('user', 'name username avatarUrl isProfileLocked');
+    await post.populate('reactions.user', 'name username');
+
+    res.status(200).json({ status: 'success', data: post });
   } catch (error) {
     next(error);
   }
@@ -170,6 +175,11 @@ const reactToPost = async (req, res, next) => {
     }
 
     await post.save();
+
+    // 👈 নতুন যোগ করা হলো: রেসপন্স পাঠানোর আগে populate করা হচ্ছে
+    await post.populate('user', 'name username avatarUrl isProfileLocked');
+    await post.populate('reactions.user', 'name username');
+
     res.status(200).json({ status: 'success', data: post });
   } catch (error) {
     next(error);
@@ -304,6 +314,10 @@ const togglePostVisibility = async (req, res, next) => {
     post.visibility = post.visibility === 'public' ? 'friends' : 'public';
     await post.save();
 
+    // 👈 নতুন যোগ করা হলো: রেসপন্স পাঠানোর আগে populate করা হচ্ছে
+    await post.populate('user', 'name username avatarUrl isProfileLocked');
+    await post.populate('reactions.user', 'name username');
+
     res.status(200).json({
       status: 'success',
       message: `Post visibility changed to ${post.visibility}`,
@@ -322,5 +336,5 @@ module.exports = {
   reactToPost,
   getSinglePost,
   getUserPosts,
-  togglePostVisibility // 👈 নতুন ফাংশন এক্সপোর্ট করা হলো
+  togglePostVisibility 
 };
