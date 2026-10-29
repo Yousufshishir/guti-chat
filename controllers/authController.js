@@ -77,7 +77,7 @@ const registerUser = async (req, res, next) => {
     res.status(201).json({
       status: 'success',
       data: {
-        user: sanitizeUser(user), // 👈 ফিক্স: স্যানিটাইজ করা হলো
+        user: sanitizeUser(user), 
         token: accessToken,
         refreshToken: refreshToken, 
       },
@@ -104,7 +104,7 @@ const loginUser = async (req, res, next) => {
         { email: loginId.toLowerCase() },
         { username: loginId.toLowerCase() },
       ],
-    }).select('+password +refreshToken'); // 👈 ফিক্স: টোকেন সেভ করার জন্য রিড করা হলো
+    }).select('+password +refreshToken'); 
 
     if (!user) {
       return res.status(401).json({ status: 'error', message: 'Invalid credentials' });
@@ -148,7 +148,7 @@ const loginUser = async (req, res, next) => {
     res.status(200).json({
       status: 'success',
       data: {
-        user: sanitizeUser(user), // 👈 ফিক্স: স্যানিটাইজ করা হলো
+        user: sanitizeUser(user), 
         token: accessToken,
         refreshToken: refreshToken, 
       },
@@ -199,7 +199,7 @@ const supabaseEmailLogin = async (req, res, next) => {
       return res.status(200).json({
         status: 'success',
         message: 'Logged in successfully',
-        data: { user: sanitizeUser(user), token: newAccessToken, refreshToken: refreshToken }, // 👈 ফিক্স
+        data: { user: sanitizeUser(user), token: newAccessToken, refreshToken: refreshToken }, 
       });
     }
 
@@ -234,7 +234,7 @@ const supabaseEmailLogin = async (req, res, next) => {
     res.status(201).json({
       status: 'success',
       message: 'User registered successfully via Email',
-      data: { user: sanitizeUser(user), token: newAccessToken, refreshToken: refreshToken }, // 👈 ফিক্স
+      data: { user: sanitizeUser(user), token: newAccessToken, refreshToken: refreshToken }, 
     });
   } catch (error) {
     next(error);
@@ -260,7 +260,7 @@ const logoutUser = async (req, res, next) => {
 };
 
 // ==========================================
-// 4. Forget Password (OTP Flow with Brevo)
+// 4. Forget Password (OTP Flow with Brevo) - 🚨 OTP Time Updated to 5 mins
 // ==========================================
 
 const forgotPassword = async (req, res, next) => {
@@ -277,7 +277,6 @@ const forgotPassword = async (req, res, next) => {
       return res.status(404).json({ status: 'error', message: 'There is no user with that email' });
     }
 
-    // 👈 নতুন যোগ করা হলো: দিনে একবারের বেশি রিকোয়েস্ট করা যাবে না
     if (user.lastPasswordResetRequest) {
       const timeSinceLastRequest = Date.now() - user.lastPasswordResetRequest.getTime();
       const hoursSinceLastRequest = timeSinceLastRequest / (1000 * 60 * 60);
@@ -295,10 +294,11 @@ const forgotPassword = async (req, res, next) => {
     const hashedOTP = crypto.createHash('sha256').update(otp).digest('hex');
 
     user.resetPasswordOTP = hashedOTP; 
-    user.resetPasswordExpire = Date.now() + 10 * 60 * 1000; 
-    user.resetPasswordAttempts = 0; 
     
-    // 👈 নতুন যোগ করা হলো: সফলভাবে OTP পাঠানোর আগে বর্তমান সময় সেভ করে রাখা
+    // 👈 এখানে ১০ মিনিটের জায়গায় ৫ মিনিট করা হলো
+    user.resetPasswordExpire = Date.now() + 5 * 60 * 1000; 
+    
+    user.resetPasswordAttempts = 0; 
     user.lastPasswordResetRequest = Date.now(); 
     
     await user.save({ validateBeforeSave: false });
@@ -311,12 +311,14 @@ const forgotPassword = async (req, res, next) => {
     const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
 
     sendSmtpEmail.subject = "Password Reset OTP";
+    
+    // 👈 ইমেইল টেমপ্লেটেও ৫ মিনিট লেখা হলো
     sendSmtpEmail.htmlContent = `
       <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
         <h2>Password Reset Request</h2>
         <p>Your OTP for resetting your password is:</p>
         <h1 style="color: #007bff; letter-spacing: 5px;">${otp}</h1>
-        <p>This OTP is valid for <strong>10 minutes</strong>.</p>
+        <p>This OTP is valid for <strong>5 minutes</strong>.</p>
         <p>If you didn't request this, please ignore this email.</p>
       </div>
     `;
@@ -334,7 +336,6 @@ const forgotPassword = async (req, res, next) => {
       user.resetPasswordOTP = undefined;
       user.resetPasswordExpire = undefined;
       user.resetPasswordAttempts = 0; 
-      // 👈 নতুন যোগ করা হলো: ইমেইল ফেইল করলে টাইম রিসেট হবে
       user.lastPasswordResetRequest = null; 
       await user.save({ validateBeforeSave: false });
       
@@ -426,7 +427,6 @@ const resetPassword = async (req, res, next) => {
 
 const getMe = async (req, res, next) => {
   try {
-    // 👈 ফিক্স: রেসপন্স পাঠানোর আগে স্যানিটাইজ করা হলো
     res.status(200).json({ status: 'success', data: sanitizeUser(req.user) });
   } catch (error) {
     next(error);
@@ -443,7 +443,6 @@ const refreshAccessToken = async (req, res, next) => {
 
     const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
     
-    // 👈 ফিক্স ৩: select: false এর কারণে টোকেনটি এক্সপ্লিসিটলি রিড করতে হবে
     const user = await User.findById(decoded.id).select('+refreshToken');
     
     if (!user || user.refreshToken !== refreshToken || user.tokenVersion !== decoded.tokenVersion) {
