@@ -277,12 +277,30 @@ const forgotPassword = async (req, res, next) => {
       return res.status(404).json({ status: 'error', message: 'There is no user with that email' });
     }
 
+    // 👈 নতুন যোগ করা হলো: দিনে একবারের বেশি রিকোয়েস্ট করা যাবে না
+    if (user.lastPasswordResetRequest) {
+      const timeSinceLastRequest = Date.now() - user.lastPasswordResetRequest.getTime();
+      const hoursSinceLastRequest = timeSinceLastRequest / (1000 * 60 * 60);
+
+      if (hoursSinceLastRequest < 24) {
+        const remainingHours = Math.ceil(24 - hoursSinceLastRequest);
+        return res.status(429).json({ 
+          status: 'error', 
+          message: `You have already requested a password reset recently. Please try again after ${remainingHours} hours.` 
+        });
+      }
+    }
+
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const hashedOTP = crypto.createHash('sha256').update(otp).digest('hex');
 
     user.resetPasswordOTP = hashedOTP; 
     user.resetPasswordExpire = Date.now() + 10 * 60 * 1000; 
     user.resetPasswordAttempts = 0; 
+    
+    // 👈 নতুন যোগ করা হলো: সফলভাবে OTP পাঠানোর আগে বর্তমান সময় সেভ করে রাখা
+    user.lastPasswordResetRequest = Date.now(); 
+    
     await user.save({ validateBeforeSave: false });
 
     const defaultClient = SibApiV3Sdk.ApiClient.instance;
@@ -316,6 +334,8 @@ const forgotPassword = async (req, res, next) => {
       user.resetPasswordOTP = undefined;
       user.resetPasswordExpire = undefined;
       user.resetPasswordAttempts = 0; 
+      // 👈 নতুন যোগ করা হলো: ইমেইল ফেইল করলে টাইম রিসেট হবে
+      user.lastPasswordResetRequest = null; 
       await user.save({ validateBeforeSave: false });
       
       return res.status(500).json({ status: 'error', message: 'Email could not be sent. Please try again later.' });

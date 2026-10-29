@@ -33,6 +33,8 @@ const userSchema = new mongoose.Schema(
     resetPasswordOTP: String,
     resetPasswordExpire: Date,
     resetPasswordAttempts: { type: Number, default: 0 },
+    // 👈 নতুন যোগ করা হলো: দিনে একবার পাসওয়ার্ড রিসেটের জন্য
+    lastPasswordResetRequest: { type: Date, default: null },
 
     loginAttempts: { type: Number, required: true, default: 0 },
     lockUntil: { type: Date, default: null },
@@ -133,7 +135,6 @@ const userSchema = new mongoose.Schema(
       default: 0 
     },
 
-    // 👈 ফিক্স ১: এখানে select: false যোগ করা হলো
     refreshToken: { 
       type: String, 
       default: null,
